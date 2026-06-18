@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ancient Cinematic Chess Battlefield</title>
+    <style>
+        body { margin: 0; background: #020208; color: #fff; font-family: sans-serif; overflow: hidden; }
+        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 10; pointer-events: none; }
+        .btn { background: #cf152b; color: white; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; pointer-events: auto; border-radius: 4px; box-shadow: 0 0 10px #ff3b30; }
+        #view-overlay { position: absolute; bottom: 20px; right: 20px; z-index: 10; background: rgba(0,0,0,0.7); padding: 15px; border: 1px solid #cf152b; border-radius: 5px; display: none; }
+    </style>
+    <!-- Three.js and OrbitControls for 360° Rotational Camera View -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h1>Battlefield Command Center</h1>
+        <button class="btn" onclick="resetGame()">Reset War</button>
+        <p id="turn-indicator">Your Turn (Solar Empire)</p>
+    </div>
+
+    <div id="view-overlay">
+        <h3 id="unit-title">Pawn Selected</h3>
+        <p>Use left click + drag to rotate view 360° around this combatant.</p>
+        <button class="btn" onclick="exitCinematicView()">Return to Strategic Map</button>
+    </div>
+
+    <script>
+        let scene, camera, renderer, controls;
+        let selectedPiece = null;
+        let isCinematicMode = false;
+
+        function init3D() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a14); // Deep night sky mood
+            scene.fog = new THREE.FogExp2(0x0a0a14, 0.015); // Hollywood battlefield fog
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 12, 10);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent moving beneath ground plane
+
+            // Cinematic Cinematic Lighting
+            const sunLight = new THREE.DirectionalLight(0xffaa66, 1.2); // Warm firelight glow
+            sunLight.position.set(10, 20, 10);
+            sunLight.castShadow = true;
+            scene.add(sunLight);
+
+            const ambient = new THREE.AmbientLight(0x334466, 0.6); // Cool blue ambient contrast
+            scene.add(ambient);
+
+            buildBattleground();
+            animate();
+        }
+
+        function buildBattleground() {
+            // Render 8x8 battlefield grid
+            const geometry = new THREE.BoxGeometry(1.2, 0.2, 1.2);
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const material = new THREE.MeshStandardMaterial({
+                        color: (r + c) % 2 === 0 ? 0x4a443d : 0x1f1a16, // Slate stone tiles
+                        roughness: 0.8
+                    });
+                    const tile = new THREE.Mesh(geometry, material);
+                    tile.position.set(c * 1.3 - 4.5, 0, r * 1.3 - 4.5);
+                    tile.receiveShadow = true;
+                    tile.userData = { square: String.fromCharCode(97 + c) + (8 - r) };
+                    scene.add(tile);
+
+                    // Add demo pieces (Procedural approximations for demonstration)
+                    if (r === 6 || r === 1) { 
+                        spawnWarriorPiece(tile.position.x, tile.position.z, r === 6 ? 0x00aaff : 0xff1144, 'pawn');
+                    }
+                }
+            }
+        }
+
+        function spawnWarriorPiece(x, z, color, type) {
+            const group = new THREE.Group();
+            
+            // Draw a basic tactical figure representation
+            const bodyGeo = new THREE.CylinderGeometry(0.2, 0.4, 1, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.5;
+            body.castShadow = true;
+            group.add(body);
+
+            const headGeo = new THREE.SphereGeometry(0.25, 16, 16);
+            const head = new THREE.Mesh(headGeo, bodyMat);
+            head.position.y = 1.1;
+            group.add(head);
+
+            group.position.set(x, 0, z);
+            group.userData = { type: type, color: color };
+            scene.add(group);
+        }
+
+        // Handle Click Intersections for 360° Interaction
+        window.addEventListener('click', (event) => {
+            if (isCinematicMode) return;
+
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2(
+                (event.clientX / window.innerWidth) * 2 - 1,
+                -(event.clientY / window.innerHeight) * 2 + 1
+            );
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            if (intersects.length > 0) {
+                let obj = intersects[0].object;
+                while (obj.parent && obj.parent !== scene) { obj = obj.parent; }
+                
+                if (obj.userData.type === 'pawn') {
+                    triggerCinematicView(obj);
+                }
+            }
+        });
+
+        function triggerCinematicView(pieceMesh) {
+            isCinematicMode = true;
+            selectedPiece = pieceMesh;
+            
+            // Adjust camera directly at the warrior for 360° inspection
+            document.getElementById('view-overlay').style.display = 'block';
+            document.getElementById('unit-title').innerText = `Warrior Pawn Inspection`;
+
+            // Animate target vector focus
+            controls.target.copy(pieceMesh.position);
+            
+            // Bring camera into proximity
+            let zoomTimeline = setInterval(() => {
+                camera.position.x += (pieceMesh.position.x - camera.position.x + 2) * 0.1;
+                camera.position.y += (pieceMesh.position.y - camera.position.y + 1) * 0.1;
+                camera.position.z += (pieceMesh.position.z - camera.position.z + 2) * 0.1;
+                if (camera.position.distanceTo(pieceMesh.position) < 3.5) {
+                    clearInterval(zoomTimeline);
+                }
+            }, 30);
+
+            // Trigger random hollywood movement animation loop
+            pieceMesh.position.y += 0.2; // Quick leap emote
+            setTimeout(() => { pieceMesh.position.y = 0; }, 150);
+        }
+
+        function exitCinematicView() {
+            isCinematicMode = false;
+            document.getElementById('view-overlay').style.display = 'none';
+            controls.target.set(0, 0, 0);
+            camera.position.set(0, 12, 10);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function resetGame() {
+            fetch('/api/reset', { method: 'POST' })
+                .then(res => res.json())
+                .then(() => location.reload());
+        }
+
+        window.onload = init3D;
+    </script>
+</body>
+</html>
